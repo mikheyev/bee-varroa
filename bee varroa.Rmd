@@ -1,0 +1,138 @@
+```{r}
+library(ggplot2)
+library(PopGenome)
+library(bigmemory)
+library(asbio) #R2
+library(ppcor) #correlation
+library(stringr) #reged
+library(reshape2)
+library(lmodel2)
+setwd("~/Dropbox/projects/bee varroa/data")
+annotation <- read.table("annotation.txt",header=T)
+ehh <- read.table("genes_ehh.txt",header=T)
+ithaca <- read.table("ithaca_selected.txt",header=F)
+```
+
+Any evidence for simialar selection pressures in Mikheyev et al, 2015?
+```{r}
+wilcox.test(ehh[ithaca[,1],"xp_mean_az"],ehh[setdiff(rownames(ehh),ithaca[,1]),"xp_mean_az"])
+wilcox.test(ehh[ithaca[,1],"xp_mean_tx"],ehh[setdiff(rownames(ehh),ithaca[,1]),"xp_mean_tx"])
+mean(ehh[ithaca[,1],"xp_mean_tx"],na.rm=TRUE)
+mean(ehh[setdiff(rownames(ehh),ithaca[,1]),"xp_mean_tx"],na.rm=TRUE)
+```
+
+Genes under selection in Ithaca were not involved in Arizonapopulation, and were actually under _less_ positive selection in Texas.
+
+
+```{r}
+ggplot(ehh,aes(xp_mean_az,xp_mean_tx,label=annotation[rownames(ehh),"name"]))+geom_point()+xlim(-4.1,-1)+ylim(-4.1,-1)+geom_text()
+
+```
+
+## Fst computed using PopGenome on haplotype data
+
+```{r}
+az_early <- as.character(read.table("az_early.txt")[[1]])
+az_late  <- as.character(read.table("az_late.txt")[[1]])
+tx_early  <- as.character(read.table("tx_early.txt")[[1]])
+tx_late  <- as.character(read.table("tx_late.txt")[[1]])
+
+# vcf <- readData("~/Dropbox/projects/bee varroa/data/vcf/16", format="VCF", gffpath="~/Dropbox/projects/bee varroa/data/gff/16")
+# 
+# vcf.test <- set.populations(vcf,list(az_early=az_early,az_late=az_late, tx_early=tx_early,tx_late=tx_late), diploid=TRUE)
+# vcf.test@populations[[1]]
+# 
+# vcf.test <- splitting.data(vcf.test, subsites="gene")
+# length(vcf.test@region.names)
+# vcf.test <- F_ST.stats(vcf.test, mode="nucleotide")
+
+gene_names <- c()
+fst <- c()
+for (i in 1:16) {
+  load(paste0("fst/",i,".RData"))
+  fst <- cbind(fst, genes1@hap.F_ST.pairwise)
+  info <- get.feature.names(genes1, gff.file=paste0("/Users/sasha/Dropbox/projects/bee varroa/data/gff/",i,"/Group",i,".gff"), chr=paste0("LG",i))
+  gene_names <- c(gene_names,str_match(info, "ID=(GB[0-9]+)")[,2])
+}
+
+fst <- t(fst)
+colnames(fst) <- c("az_early_az_late", "az_early_tx_early", "az_early_tx_late", "az_late_tx_early", "az_late_tx_late", "tx_early_tx_late")
+full.pops <- lm(az_early_az_late ~ tx_early_tx_late + az_late_tx_late, data=as.data.frame(fst))
+rownames(fst) <- gene_names
+noafr <- lm(az_early_az_late ~ tx_early_tx_late , data=as.data.frame(fst))
+partial.R2(noafr.az, full.pops)
+
+with(as.data.frame(fst), pcor.test(az_early_az_late, tx_early_tx_late, az_late_tx_late, method="s"))
+
+with(as.data.frame(fst), cor.test(az_early_az_late, tx_early_tx_late, method="s"))
+
+# are distances in early populations correlated with distances in later populatiions
+with(as.data.frame(fst), cor.test(az_early_tx_early, az_late_tx_late, method="s"))
+
+# African vs European
+with(as.data.frame(fst), cor.test(az_early_tx_early, az_late_tx_late, method="s"))
+
+#
+with(as.data.frame(fst), plot(az_early_az_late, tx_early_tx_late ))
+
+fst.melt <- melt((fst[,c("az_early_az_late","az_early_tx_early","tx_early_tx_late","az_late_tx_late")]))
+
+ggplot(fst.melt,aes(x=Var2,y=value))+geom_violin()+scale_y_log10()
+```
+
+## Fst computed using PopGenome on nucleotide frequency data
+
+```{r}
+fst_nuc <- c()
+for (i in 1:16) {
+  load(paste0("fst/",i,"_nuc.RData"))
+  fst_nuc <- cbind(fst_nuc, genes2@nuc.F_ST.pairwise)
+}
+fst_nuc <- t(fst_nuc)
+colnames(fst_nuc) <- c("az_early_az_late", "az_early_tx_early", "az_early_tx_late", "az_late_tx_early", "az_late_tx_late", "tx_early_tx_late")
+summary(glm(az_early_az_late ~ tx_early_tx_late + az_late_tx_late, data=as.data.frame(fst_nuc)))
+
+cor.test(fst_nuc[,1],fst[,1])
+cor.test(fst_nuc[,1],fst_pre[,1])
+
+plot(fst_nuc[,1],fst_pre[,1])
+```
+
+## Fst computed using PopGenome on nucleotide frequency data using data from _before_ imputation.
+
+Just to check that we're not getting some sort of spurious imputation artifact.
+
+```{r}
+fst_pre <- c()
+for (i in 1:16) {
+  load(paste0("fst_pre_beagle/",i,"_nuc.RData"))
+  fst_pre <- cbind(fst_pre, genes2@nuc.F_ST.pairwise)
+}
+
+fst_pre <- t(fst_pre)
+colnames(fst_pre) <- c("az_early_az_late", "az_early_tx_early", "az_early_tx_late", "az_late_tx_early", "az_late_tx_late", "tx_early_tx_late")
+summary(glm(az_early_az_late ~ tx_early_tx_late + az_late_tx_late, data=as.data.frame(fst_pre)))
+summary(glm(az_early_az_late ~ tx_early_tx_late + az_late_tx_late, data=as.data.frame(fst)))
+
+
+with(as.data.frame(fst_pre), plot(az_early_az_late, tx_early_tx_late ))
+```
+
+
+## EHH and Fst
+
+```{r}
+ehh<-cbind(ehh,fst[rownames(ehh),])
+
+summary(lm(xp_mean_az ~ xp_mean_tx * az_late_tx_late, data=as.data.frame(ehh)))
+lmodel2(xp_mean_az ~ xp_mean_tx,as.data.frame(ehh))
+
+with(as.data.frame(ehh), pcor.test(xp_mean_az, xp_mean_tx, az_late_tx_late,method="s"))
+
+with(ehh,cor.test(xp_mean_az,az_early_az_late))
+with(ehh,plot(xp_mean_az,az_early_az_late))
+with(ehh,cor.test(xp_mean_tx,tx_early_tx_late))
+with(ehh,plot(xp_mean_tx,tx_early_tx_late))
+```
+
+ggplot(melt(genes1@Pi),aes(Var2,value))+geom_histogram()
